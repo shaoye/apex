@@ -323,6 +323,9 @@ func (f *Function) DeployConfigAndCode(zip []byte) error {
 		}
 	}
 
+	if err := f.isPending(); err != nil {
+		return err
+	}
 	_, err := f.Service.UpdateFunctionConfiguration(params)
 	if err != nil {
 		return err
@@ -373,6 +376,9 @@ func (f *Function) GetConfigCurrent() (*lambda.GetFunctionOutput, error) {
 func (f *Function) Update(zip []byte) error {
 	f.Log.Info("updating function")
 
+	if err := f.isPending(); err != nil {
+		return err
+	}
 	updated, err := f.Service.UpdateFunctionCode(&lambda.UpdateFunctionCodeInput{
 		FunctionName: &f.FunctionName,
 		Publish:      aws.Bool(true),
@@ -427,6 +433,9 @@ func (f *Function) Create(zip []byte) error {
 
 	created, err := f.Service.CreateFunction(params)
 	if err != nil {
+		return err
+	}
+	if err := f.isPending(); err != nil {
 		return err
 	}
 
@@ -493,6 +502,9 @@ func (f *Function) Invoke(event, context interface{}) (reply, logs io.Reader, er
 		return nil, nil, err
 	}
 
+	if err := f.isPending(); err != nil {
+		return nil, nil, err
+	}
 	res, err := f.Service.Invoke(&lambda.InvokeInput{
 		ClientContext:  aws.String(base64.StdEncoding.EncodeToString(contextBytes)),
 		FunctionName:   &f.FunctionName,
@@ -713,6 +725,38 @@ func (f *Function) GetVersionFromAlias(alias string) (string, error) {
 		}
 	}
 	return version, nil
+}
+
+// isPending checks and waits if function is still in pending state
+func (f *Function) isPending() error {
+	f.Log.Debugf("checking if function is pending")
+	var attempt int
+	maxAttempts := 30       // TODO: ideally max attempts is configurable
+	wait := time.Second * 5 // TODO: ideally some backoff
+
+retry:
+	attempt++
+
+	conf, err := f.Service.GetFunctionConfiguration(&lambda.GetFunctionConfigurationInput{
+		FunctionName: &f.FunctionName,
+	})
+	if err != nil {
+		return errors.Wrap(err, "getting function config")
+	}
+
+	if *conf.State == "Active" && *conf.LastUpdateStatus == "Successful" {
+		f.Log.Debugf("function is in state %q / %q", *conf.State, *conf.LastUpdateStatus)
+		return nil
+	}
+
+	if attempt >= maxAttempts {
+		f.Log.Debugf("max attempts exceeded")
+		return errors.Errorf("function is stuck in the state %q / %q", *conf.State, *conf.LastUpdateStatus)
+	}
+
+	f.Log.Debugf("function is in state %q / %q (attempt %d of %d), trying again in %s", *conf.State, *conf.LastUpdateStatus, attempt, maxAttempts, wait)
+	time.Sleep(wait)
+	goto retry
 }
 
 // cleanup removes any deployed functions beyond the configured `RetainedVersions` value

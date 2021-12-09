@@ -21,7 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/apex/apex/function"
-	"github.com/apex/apex/mock"
+	mock_lambdaiface "github.com/apex/apex/mock"
 	"github.com/apex/apex/utils"
 )
 
@@ -115,6 +115,9 @@ func TestFunction_Create_edgeFunction(t *testing.T) {
 	}).Return(&lambda.FunctionConfiguration{
 		Version: &updatedVersion,
 	}, nil)
+	serviceMock.EXPECT().GetFunctionConfiguration(&lambda.GetFunctionConfigurationInput{
+		FunctionName: &fnName,
+	}).Return(&lambda.FunctionConfiguration{State: aws.String("Active"), LastUpdateStatus: aws.String("Successful")}, nil)
 	serviceMock.EXPECT().CreateAlias(&lambda.CreateAliasInput{
 		FunctionName:    &fnName,
 		FunctionVersion: &updatedVersion,
@@ -197,6 +200,9 @@ func TestFunction_DeployCode_Success(t *testing.T) {
 	fnAlias := "current"
 	retainedVersions := 1
 
+	serviceMock.EXPECT().GetFunctionConfiguration(&lambda.GetFunctionConfigurationInput{
+		FunctionName: &fnName,
+	}).Return(&lambda.FunctionConfiguration{State: aws.String("Active"), LastUpdateStatus: aws.String("Successful")}, nil)
 	serviceMock.EXPECT().UpdateFunctionCode(&lambda.UpdateFunctionCodeInput{
 		FunctionName: &fnName,
 		Publish:      aws.Bool(true),
